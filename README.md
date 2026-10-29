@@ -105,7 +105,7 @@ git commit -am "adiciona lodash"
 git push -u origin teste/dependencia-vulneravel
 ```
 
-O `lodash` 4.17.20 tem a **CVE-2021-23337** (HIGH, command injection via `template`), corrigida na 4.17.21, e a **CVE-2026-4800** (HIGH), corrigida na 4.18.0. Ao abrir o PR, o job `Trivy - dependencias` falha e o merge fica bloqueado pela proteção da branch:
+O `lodash` 4.17.20 tem a **CVE-2021-23337** (HIGH, command injection via `template`), corrigida na 4.17.21, e a **CVE-2026-4800** (HIGH), corrigida na 4.18.0. Ao abrir o PR, o job `Trivy - dependencias` falha, e o `Imagem Docker - Trivy e SBOM` também, porque o lodash é dependência de produção e vai para a imagem. O merge fica bloqueado pela proteção da branch (PR #1):
 
 ```
 package-lock.json (npm)

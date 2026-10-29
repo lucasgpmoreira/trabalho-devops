@@ -56,14 +56,18 @@ Sobre o Trivy: cada scan roda duas vezes. A primeira com todas as severidades e 
 
 ### Quality Gate (SonarCloud)
 
-Foi usado um Quality Gate aplicado ao **código novo** (New Code), com as condições:
+Foi usado o Quality Gate **Sonar way**, que é o padrão do SonarCloud e só avalia o **código novo** (New Code). No plano gratuito não dá para criar gates customizados, e o Sonar way já cobre segurança e qualidade. As condições são:
 
 - Security Rating em código novo: A
 - Reliability Rating em código novo: A
-- Security Hotspots revisados: 100%
-- Issues novas: 0
+- Maintainability Rating em código novo: A
+- Security Hotspots revisados em código novo: 100%
 - Cobertura em código novo: >= 80%
 - Linhas duplicadas em código novo: <= 3%
+
+O New Code está configurado como *Previous version*. Em Pull Request, o código novo é o diff do próprio PR.
+
+Obs.: a primeira análise do projeto não calcula o Quality Gate ("Quality Gate not computed"), porque ela vira a referência do código novo. O gate passa a ser avaliado a partir da segunda análise.
 
 ### SBOM
 
@@ -79,7 +83,7 @@ O Dockerfile usa build multi-stage em cima do `node:24-alpine`, instala só as d
    - Importar o repositório em https://sonarcloud.io e pegar a organização e a project key.
    - Atualizar `sonar.organization` e `sonar.projectKey` em [`sonar-project.properties`](sonar-project.properties).
    - Em *Administration > Analysis Method*, desligar a **Automatic Analysis** (senão conflita com a análise pelo CI).
-   - Criar o Quality Gate descrito acima em *Quality Gates* e associar ao projeto.
+   - Conferir que o projeto usa o Quality Gate *Sonar way* (padrão) e que o New Code está como *Previous version*.
    - Em *My Account > Security*, gerar um token e cadastrar no GitHub como secret `SONAR_TOKEN` (*Settings > Secrets and variables > Actions*).
 2. **Gitleaks**: em repositório de conta pessoal não precisa de licença. Se o repositório for de organização, é preciso cadastrar o secret `GITLEAKS_LICENSE`.
 3. **GHCR**: usa o `GITHUB_TOKEN` do próprio Actions, não precisa de secret extra.

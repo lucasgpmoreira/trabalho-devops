@@ -1,0 +1,231 @@
+name: CI/CD
+
+on:
+  pull_request:
+    branches: [main]
+    types: [opened, synchronize, reopened]
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  IMAGE_NAME: api-tarefas
+
+jobs:
+  gitleaks:
+    name: Gitleaks
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pull-requests: write
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0 # precisa do historico completo
+
+      - name: Procurar segredos no historico
+        uses: gitleaks/gitleaks-action@v3
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  testes:
+    name: Build e testes
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 24
+          cache: npm
+
+      - run: npm ci
+      - run: npm test
+
+      - name: Guardar cobertura para o Sonar
+        uses: actions/upload-artifact@v7
+        with:
+          name: cobertura
+          path: coverage/lcov.info
+          retention-days: 1
+
+  sonarcloud:
+    name: SonarCloud
+    runs-on: ubuntu-latest
+    needs: testes
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0 # o Sonar usa o historico para identificar o codigo novo
+
+      - uses: actions/download-artifact@v8
+        with:
+          name: cobertura
+          path: coverage
+
+      - name: Analise SonarCloud
+        uses: SonarSource/sonarqube-scan-action@v8.4.0
+        env:
+          SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
+        with:
+          # faz o job esperar o resultado do Quality Gate e falhar se ele reprovar
+          args: >
+            -Dsonar.qualitygate.wait=true
+            -Dsonar.qualitygate.timeout=300
+
+  trivy-deps:
+    name: Trivy - dependencias
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      # relatorio completo (todas as severidades), so registra
+      - name: Relatorio de dependencias
+        uses: aquasecurity/trivy-action@v0.36.0
+        with:
+          scan-type: fs
+          scan-ref: .
+          scanners: vuln
+          severity: UNKNOWN,LOW,MEDIUM,HIGH,CRITICAL
+          format: table
+          output: trivy-deps-relatorio.txt
+          exit-code: '0'
+
+      - name: Publicar relatorio
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: trivy-deps-relatorio
+          path: trivy-deps-relatorio.txt
+
+      - name: Mostrar relatorio no resumo
+        if: always()
+        run: |
+          {
+            echo '### Trivy - dependencias'
+            echo '```'
+            cat trivy-deps-relatorio.txt
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      # gate: quebra o pipeline se tiver HIGH/CRITICAL com correcao disponivel
+      - name: Bloqueio HIGH/CRITICAL
+        uses: aquasecurity/trivy-action@v0.36.0
+        with:
+          scan-type: fs
+          scan-ref: .
+          scanners: vuln
+          severity: HIGH,CRITICAL
+          ignore-unfixed: true
+          format: table
+          exit-code: '1'
+
+  imagem:
+    name: Imagem Docker - Trivy e SBOM
+    runs-on: ubuntu-latest
+    needs: testes
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: docker/setup-buildx-action@v4
+
+      - name: Build da imagem
+        uses: docker/build-push-action@v7
+        with:
+          context: .
+          load: true
+          push: false
+          tags: ${{ env.IMAGE_NAME }}:${{ github.sha }}
+
+      - name: Gerar SBOM (Syft)
+        uses: anchore/sbom-action@v0.24.3
+        with:
+          image: ${{ env.IMAGE_NAME }}:${{ github.sha }}
+          format: spdx-json
+          output-file: sbom-${{ env.IMAGE_NAME }}.spdx.json
+          artifact-name: sbom-${{ env.IMAGE_NAME }}.spdx.json
+
+      - name: Relatorio da imagem
+        uses: aquasecurity/trivy-action@v0.36.0
+        with:
+          scan-type: image
+          image-ref: ${{ env.IMAGE_NAME }}:${{ github.sha }}
+          scanners: vuln
+          severity: UNKNOWN,LOW,MEDIUM,HIGH,CRITICAL
+          format: table
+          output: trivy-imagem-relatorio.txt
+          exit-code: '0'
+
+      - name: Publicar relatorio
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: trivy-imagem-relatorio
+          path: trivy-imagem-relatorio.txt
+
+      - name: Mostrar relatorio no resumo
+        if: always()
+        run: |
+          {
+            echo '### Trivy - imagem'
+            echo '```'
+            cat trivy-imagem-relatorio.txt
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Bloqueio HIGH/CRITICAL
+        uses: aquasecurity/trivy-action@v0.36.0
+        with:
+          scan-type: image
+          image-ref: ${{ env.IMAGE_NAME }}:${{ github.sha }}
+          scanners: vuln
+          severity: HIGH,CRITICAL
+          ignore-unfixed: true
+          format: table
+          exit-code: '1'
+
+      # salva a mesma imagem que foi verificada para o job de publicacao
+      - name: Exportar imagem
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        run: docker save ${{ env.IMAGE_NAME }}:${{ github.sha }} -o imagem.tar
+
+      - uses: actions/upload-artifact@v7
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        with:
+          name: imagem
+          path: imagem.tar
+          retention-days: 1
+
+  publicar:
+    name: Publicar imagem
+    runs-on: ubuntu-latest
+    # so publica se todas as verificacoes passaram e for push na main
+    needs: [gitleaks, sonarcloud, trivy-deps, imagem]
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - uses: actions/download-artifact@v8
+        with:
+          name: imagem
+
+      - name: Carregar imagem
+        run: docker load -i imagem.tar
+
+      - uses: docker/login-action@v4
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Tag e push
+        run: |
+          REPO="ghcr.io/$(echo '${{ github.repository_owner }}' | tr '[:upper:]' '[:lower:]')/${IMAGE_NAME}"
+          docker tag "$IMAGE_NAME:$GITHUB_SHA" "$REPO:$GITHUB_SHA"
+          docker tag "$IMAGE_NAME:$GITHUB_SHA" "$REPO:latest"
+          docker push "$REPO:$GITHUB_SHA"
+          docker push "$REPO:latest"

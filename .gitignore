@@ -1,0 +1,8 @@
+node_modules/
+coverage/
+*.tar
+*.sarif
+trivy-*.txt
+sbom*.json
+.env
+.scannerwork/

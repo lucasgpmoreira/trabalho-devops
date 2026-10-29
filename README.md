@@ -129,6 +129,8 @@ git push
 
 O PR roda de novo, todos os checks passam e o merge é liberado.
 
+O PR #1 (onde estão a falha e a correção) acabou fechado sem merge por causa de um ajuste no histórico de commits da branch. O merge foi feito pelo PR #2, aberto a partir da mesma branch e com o mesmo conteúdo.
+
 ![Execução aprovada](docs/evidencias/03-pr-aprovado.png)
 
 Obs.: a 4.17.21 resolve a CVE-2021-23337 mas ainda tem a CVE-2026-4800, então ela continuaria bloqueada. Por isso a correção foi direto para a 4.18.1.

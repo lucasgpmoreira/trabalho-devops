@@ -213,19 +213,15 @@ jobs:
         with:
           name: imagem
 
-      - name: Carregar imagem
-        run: docker load -i imagem.tar
+      # o skopeo envia o tar direto pro registry, sem docker load/push
+      # (o docker push de imagem carregada via docker load dava "unknown blob" no GHCR)
+      - name: Login no GHCR
+        run: |
+          command -v skopeo || (sudo apt-get update && sudo apt-get install -y skopeo)
+          echo '${{ secrets.GITHUB_TOKEN }}' | skopeo login ghcr.io -u '${{ github.actor }}' --password-stdin
 
-      - uses: docker/login-action@v4
-        with:
-          registry: ghcr.io
-          username: ${{ github.actor }}
-          password: ${{ secrets.GITHUB_TOKEN }}
-
-      - name: Tag e push
+      - name: Push da imagem
         run: |
           REPO="ghcr.io/$(echo '${{ github.repository_owner }}' | tr '[:upper:]' '[:lower:]')/${IMAGE_NAME}"
-          docker tag "$IMAGE_NAME:$GITHUB_SHA" "$REPO:$GITHUB_SHA"
-          docker tag "$IMAGE_NAME:$GITHUB_SHA" "$REPO:latest"
-          docker push "$REPO:$GITHUB_SHA"
-          docker push "$REPO:latest"
+          skopeo copy docker-archive:imagem.tar "docker://$REPO:$GITHUB_SHA"
+          skopeo copy docker-archive:imagem.tar "docker://$REPO:latest"

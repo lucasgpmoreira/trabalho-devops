@@ -39,7 +39,7 @@ Ordem dos jobs: `Gitleaks`, `Trivy - dependencias` e `Build e testes` rodam em p
 | **SonarCloud** | Análise estática (SAST) com cobertura. Usa `sonar.qualitygate.wait=true`, então o job espera o resultado do Quality Gate e falha se ele reprovar. |
 | **Trivy - dependências** | `trivy fs` em cima do `package-lock.json`. Gera relatório completo e depois roda o gate. |
 | **Imagem Docker - Trivy e SBOM** | Builda a imagem, gera o SBOM com Syft, gera relatório do Trivy da imagem e roda o gate. |
-| **Publicar imagem** | Só roda em push na `main` e depende de **todos** os jobs anteriores. Publica no GHCR exatamente a imagem que foi escaneada (passada entre jobs com `docker save`/`docker load`), sem rebuild. |
+| **Publicar imagem** | Só roda em push na `main` e depende de **todos** os jobs anteriores. Publica no GHCR exatamente a imagem que foi escaneada (salva com `docker save` e enviada com `skopeo copy`), sem rebuild. |
 
 Em PR a imagem nunca é publicada, então uma versão vulnerável não chega no registry.
 
